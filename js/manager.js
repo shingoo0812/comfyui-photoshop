@@ -20,8 +20,10 @@ function getSafeColor(node) {
     return (node.color || node.bgcolor || "").toLowerCase();
 }
 function identifyNode(node) {
- 
-    if (node.comfyClass !== "Fast Groups Muter (rgthree)") return;
+
+    const isMuter = node.comfyClass === "Fast Groups Muter (rgthree)";
+    const isBypasser = node.comfyClass === "Fast Groups Bypasser (rgthree)";
+    if (!isMuter && !isBypasser) return;
     const nodeTitle = (node.title || "").trim();
     //const c = getSafeColor(node); 
     const c = getSafeColor(node) || "#000"; 
@@ -45,18 +47,20 @@ function identifyNode(node) {
         c === "#222222" || c === "#222"//BLACK
 
    
-    if (!workflowSwitcher) {
-        if (nodeTitle.startsWith("📁") || isBlue) {
+    // Title takes priority over color-based detection
+    const isWorkflow = nodeTitle.startsWith("📁") || (!nodeTitle.startsWith("⚙️") && isBlue);
+    const isRndrMode = nodeTitle.startsWith("⚙️") || (!nodeTitle.startsWith("📁") && isGreen);
+
+    if (isWorkflow) {
+        if (!workflowSwitcher) {
             workflowSwitcher = node;
-            console.log(`🔹 [PS Plugin] Workflow Switcher Found! ID: ${node.id}, Color detected: ${c}`);
+            console.log(`🔹 [PS Plugin] Workflow Switcher Found! ID: ${node.id}, Title: ${nodeTitle}, Color: ${c}`);
             startWorkflowChecker();
         }
-    }
-    
-    if (!rndrModeSwitcher) {
-        if (nodeTitle.startsWith("⚙️") || isGreen) {
+    } else if (isRndrMode) {
+        if (!rndrModeSwitcher) {
             rndrModeSwitcher = node;
-            console.log(`🔹 [PS Plugin] Render Mode Switcher Found! ID: ${node.id}, Color detected: ${c}`);
+            console.log(`🔹 [PS Plugin] Render Mode Switcher Found! ID: ${node.id}, Title: ${nodeTitle}, Color: ${c}`);
             startRenderChecker();
         }
     }
@@ -278,12 +282,27 @@ function startRenderChecker() {
   }, 3000);
 }
 
+function resetSwitchers() {
+    workflowSwitcher = "";
+    rndrModeSwitcher = "";
+    if (workflowInterval) { clearInterval(workflowInterval); workflowInterval = null; }
+    if (rndrInterval) { clearInterval(rndrInterval); rndrInterval = null; }
+    console.log("🔹 [PS Plugin] Switchers reset for new workflow");
+}
+
 // Register extension with ComfyUI
 app.registerExtension({
   name: "PhotoshopToComfyUINode",
-  
+
   // 1. Perform a scan during initialization
   async setup() {
+     const originalLoadGraphData = app.loadGraphData.bind(app);
+     app.loadGraphData = function(...args) {
+         resetSwitchers();
+         const result = originalLoadGraphData(...args);
+         setTimeout(() => scanForSwitchers(), 500);
+         return result;
+     };
      setTimeout(() => {
         scanForSwitchers();
      }, 1000);
