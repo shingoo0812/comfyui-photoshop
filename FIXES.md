@@ -91,6 +91,77 @@ Svelte ソースコードを取得してリビルドし、`<webview>` を `index
 
 ---
 
+### 3. ワークフロー切り替え時に Photoshop 表示が更新されない問題 ✅
+
+**症状:** ComfyUI で別のワークフローを開いても、Photoshop パネルの TOP/BOTTOM ドロップダウンが前のワークフローの内容を表示し続ける。
+
+**原因:** `manager.js` の `workflowSwitcher` / `rndrModeSwitcher` がモジュールレベルの変数として保持されており、新しいワークフローを読み込んでも**リセットされない**。`identifyNode` 内の `if (!workflowSwitcher)` ガードにより上書きもされない。
+
+**修正箇所:**
+- ファイル: `js/manager.js`
+
+**変更内容:**
+```js
+// 追加: リセット関数
+function resetSwitchers() {
+    workflowSwitcher = "";
+    rndrModeSwitcher = "";
+    if (workflowInterval) { clearInterval(workflowInterval); workflowInterval = null; }
+    if (rndrInterval) { clearInterval(rndrInterval); rndrInterval = null; }
+}
+
+// 追加: loadGraphData をフックしてリセット＋再スキャン
+const originalLoadGraphData = app.loadGraphData.bind(app);
+app.loadGraphData = function(...args) {
+    resetSwitchers();
+    const result = originalLoadGraphData(...args);
+    setTimeout(() => scanForSwitchers(), 500);
+    return result;
+};
+```
+
+---
+
+### 4. Fast Groups Bypasser が rndrModeSwitcher として認識されない問題 ✅
+
+**症状:** `⚙️` プレフィックスのノードが `Fast Groups Bypasser (rgthree)` の場合、BOTTOM ドロップダウンが機能しない。
+
+**原因:** `identifyNode` の冒頭で `comfyClass !== "Fast Groups Muter (rgthree)"` の場合に即 `return` していたため、Bypasser ノードが完全に無視されていた。
+
+**修正箇所:**
+- ファイル: `js/manager.js`
+
+**変更内容:**
+```js
+// 変更前
+if (node.comfyClass !== "Fast Groups Muter (rgthree)") return;
+
+// 変更後
+const isMuter = node.comfyClass === "Fast Groups Muter (rgthree)";
+const isBypasser = node.comfyClass === "Fast Groups Bypasser (rgthree)";
+if (!isMuter && !isBypasser) return;
+```
+
+---
+
+### 5. タイトル（📁/⚙️）より色が優先されてノードが誤判定される問題 ✅
+
+**症状:** `⚙️` プレフィックスのノードでも色が `#000`（未設定時のデフォルト）の場合、`isBlue` 判定に引っかかり workflowSwitcher として誤認識される。
+
+**原因:** 色ベースの判定がタイトルより先に評価されており、`#000` が `isBlue` リストに含まれていた。
+
+**修正箇所:**
+- ファイル: `js/manager.js`
+
+**変更内容:**
+```js
+// タイトルを色より優先して判定
+const isWorkflow = nodeTitle.startsWith("📁") || (!nodeTitle.startsWith("⚙️") && isBlue);
+const isRndrMode = nodeTitle.startsWith("⚙️") || (!nodeTitle.startsWith("📁") && isGreen);
+```
+
+---
+
 ## 変更ファイル一覧
 
 ### インストール済みプラグイン
